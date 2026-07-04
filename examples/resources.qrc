@@ -1,0 +1,6 @@
+<!DOCTYPE RCC><RCC version="1.0">
+<qresource>
+    <file alias="shaders/default.frag">../shaders/default.frag</file>
+    <file alias="shaders/star_nest.frag">../shaders/star_nest.frag</file>
+</qresource>
+</RCC>
