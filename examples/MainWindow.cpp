@@ -17,6 +17,7 @@
 #include <QMimeData>
 #include <QUrl>
 #include <QFileInfo>
+#include <QFile>
 #include <QDateTime>
 #include <QFrame>
 #include <QStyle>
@@ -49,6 +50,17 @@ void MainWindow::setupUI() {
     
     // 1. Create the Canvas
     m_canvas = new QtShaderCanvas(this);
+    
+    // Set background image
+    QString bgPath = "06. Green Lush.jpg";
+    if (!QFile::exists(bgPath)) {
+        bgPath = "../06. Green Lush.jpg";
+    }
+    if (!QFile::exists(bgPath)) {
+        bgPath = "/home/nord/code_base/QtShaderCanvas/06. Green Lush.jpg";
+    }
+    m_canvas->setBackgroundImage(bgPath);
+
     mainLayout->addWidget(m_canvas, 1); // stretches to fill
     
     // 2. Create the Sidebar Panel

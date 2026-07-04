@@ -17,3 +17,14 @@ target_link_libraries(QtShaderCanvasExample PRIVATE
     QtShaderCanvas
     Qt6::Widgets
 )
+
+# Define shader checker utility executable
+add_executable(QtShaderCanvasShaderChecker
+    shader_checker.cpp
+)
+
+target_link_libraries(QtShaderCanvasShaderChecker PRIVATE
+    QtShaderCanvas
+    Qt6::Widgets
+)
+

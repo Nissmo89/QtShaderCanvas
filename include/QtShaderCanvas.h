@@ -23,6 +23,10 @@ public:
     bool loadShader(const QString &filePath);
     bool loadShaderCode(const QString &sourceCode);
 
+    // Background Image
+    void setBackgroundImage(const QString &filePath);
+    QString backgroundImagePath() const;
+
     // Getters
     bool isPlaying() const;
     float time() const;

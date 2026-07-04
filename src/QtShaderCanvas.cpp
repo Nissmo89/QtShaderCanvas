@@ -5,6 +5,8 @@
 #include <QOpenGLVertexArrayObject>
 #include <QOpenGLFunctions>
 #include <QOpenGLContext>
+#include <QOpenGLTexture>
+#include <QImage>
 #include <QElapsedTimer>
 #include <QTimer>
 #include <QFileSystemWatcher>
@@ -61,6 +63,13 @@ static QString wrapShader(const QString &sourceCode) {
     wrapped += "uniform sampler2D iChannel3;\n";
     wrapped += "uniform vec3 iChannelResolution[4];\n\n";
 
+    // Ghostty cursor uniforms support
+    wrapped += "uniform vec4 iCurrentCursor;\n";
+    wrapped += "uniform vec4 iPreviousCursor;\n";
+    wrapped += "uniform float iTimeCursorChange;\n";
+    wrapped += "uniform vec4 iCurrentCursorColor;\n";
+    wrapped += "uniform vec4 iPreviousCursorColor;\n\n";
+
     wrapped += "#line 1\n";
     wrapped += sourceCode;
     wrapped += "\n\n";
@@ -102,6 +111,9 @@ public:
     QString shaderCode;
     QString shaderErrorString;
 
+    QString backgroundImagePath;
+    QOpenGLTexture *backgroundTexture = nullptr;
+
     QtShaderCanvasPrivate(QtShaderCanvas *q)
         : q_ptr(q)
         , vbo(QOpenGLBuffer::VertexBuffer)
@@ -111,6 +123,10 @@ public:
         q_ptr->makeCurrent();
         if (shaderProgram) {
             delete shaderProgram;
+        }
+        if (backgroundTexture) {
+            backgroundTexture->destroy();
+            delete backgroundTexture;
         }
         vbo.destroy();
         vao.destroy();
@@ -482,19 +498,54 @@ void QtShaderCanvas::paintGL() {
         float timeSec = qtime.hour() * 3600.0f + qtime.minute() * 60.0f + qtime.second() + qtime.msec() / 1000.0f;
         d->shaderProgram->setUniformValue("iDate", QVector4D(date.year(), date.month() - 1, date.day(), timeSec));
 
+        // 6b. Ghostty cursor uniforms (default simulated cursor)
+        d->shaderProgram->setUniformValue("iCurrentCursor", QVector4D(width() * ratio / 2.0f, height() * ratio / 2.0f, 80.0f * ratio, 40.0f * ratio));
+        d->shaderProgram->setUniformValue("iPreviousCursor", QVector4D(width() * ratio / 2.0f - 50.0f, height() * ratio / 2.0f - 20.0f, 80.0f * ratio, 40.0f * ratio));
+        d->shaderProgram->setUniformValue("iTimeCursorChange", d->time - 0.5f);
+        d->shaderProgram->setUniformValue("iCurrentCursorColor", QVector4D(0.4f, 0.7f, 1.0f, 1.0f));
+        d->shaderProgram->setUniformValue("iPreviousCursorColor", QVector4D(0.4f, 0.7f, 1.0f, 1.0f));
+
         // 7. iChannel0-3 (Texture units) and dummy resolution array to prevent compilation errors
         d->shaderProgram->setUniformValue("iChannel0", 0);
         d->shaderProgram->setUniformValue("iChannel1", 1);
         d->shaderProgram->setUniformValue("iChannel2", 2);
         d->shaderProgram->setUniformValue("iChannel3", 3);
 
-        QVector3D dummyRes[4] = {
-            QVector3D(0.0f, 0.0f, 0.0f),
-            QVector3D(0.0f, 0.0f, 0.0f),
-            QVector3D(0.0f, 0.0f, 0.0f),
-            QVector3D(0.0f, 0.0f, 0.0f)
-        };
-        d->shaderProgram->setUniformValueArray("iChannelResolution", dummyRes, 4);
+        // Load background texture if path is set and texture is not loaded yet
+        if (!d->backgroundImagePath.isEmpty() && !d->backgroundTexture) {
+            QImage img(d->backgroundImagePath);
+            if (!img.isNull()) {
+                d->backgroundTexture = new QOpenGLTexture(img.mirrored());
+                d->backgroundTexture->setMinificationFilter(QOpenGLTexture::Linear);
+                d->backgroundTexture->setMagnificationFilter(QOpenGLTexture::Linear);
+                d->backgroundTexture->setWrapMode(QOpenGLTexture::Repeat);
+            }
+        }
+
+        if (d->backgroundTexture && d->backgroundTexture->isCreated()) {
+            d->backgroundTexture->bind(0);
+            d->backgroundTexture->bind(1);
+            d->backgroundTexture->bind(2);
+            d->backgroundTexture->bind(3);
+
+            float w = d->backgroundTexture->width();
+            float h = d->backgroundTexture->height();
+            QVector3D res[4] = {
+                QVector3D(w, h, 1.0f),
+                QVector3D(w, h, 1.0f),
+                QVector3D(w, h, 1.0f),
+                QVector3D(w, h, 1.0f)
+            };
+            d->shaderProgram->setUniformValueArray("iChannelResolution", res, 4);
+        } else {
+            QVector3D dummyRes[4] = {
+                QVector3D(0.0f, 0.0f, 0.0f),
+                QVector3D(0.0f, 0.0f, 0.0f),
+                QVector3D(0.0f, 0.0f, 0.0f),
+                QVector3D(0.0f, 0.0f, 0.0f)
+            };
+            d->shaderProgram->setUniformValueArray("iChannelResolution", dummyRes, 4);
+        }
 
         // Bind VAO & Draw fullscreen quad
         d->vao.bind();
@@ -546,3 +597,27 @@ void QtShaderCanvas::mouseReleaseEvent(QMouseEvent *event) {
     }
     QOpenGLWidget::mouseReleaseEvent(event);
 }
+
+void QtShaderCanvas::setBackgroundImage(const QString &filePath) {
+    Q_D(QtShaderCanvas);
+    if (d->backgroundImagePath == filePath) return;
+
+    d->backgroundImagePath = filePath;
+
+    // Clean up previous texture if it exists. Re-creation will happen on next paintGL().
+    makeCurrent();
+    if (d->backgroundTexture) {
+        d->backgroundTexture->destroy();
+        delete d->backgroundTexture;
+        d->backgroundTexture = nullptr;
+    }
+    doneCurrent();
+
+    update();
+}
+
+QString QtShaderCanvas::backgroundImagePath() const {
+    Q_D(const QtShaderCanvas);
+    return d->backgroundImagePath;
+}
+
