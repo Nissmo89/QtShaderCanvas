@@ -977,14 +977,14 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 //  https://iquilezles.org/articles/fbm
 //  https://iquilezles.org/articles/morenoise
 
-void mainImage(out vec4 fragColor, in vec2 fragCoord)
-{
-    vec2 p = fragCoord / iResolution.xy;
-
-    vec3 col = texture(iChannel0, p).xyz;
+//void mainImage(out vec4 fragColor, in vec2 fragCoord)
+//{
+    //vec2 p = fragCoord / iResolution.xy;
+//
+    //vec3 col = texture(iChannel0, p).xyz;
     //vec3 col = texelFetch( iChannel0, ivec2(fragCoord-0.5), 0 ).xyz;
-
-    col *= 0.5 + 0.5 * pow(16.0 * p.x * p.y * (1.0 - p.x) * (1.0 - p.y), 0.05);
-
-    fragColor = vec4(col, 1.0);
-}
+//
+    //col *= 0.5 + 0.5 * pow(16.0 * p.x * p.y * (1.0 - p.x) * (1.0 - p.y), 0.05);
+//
+    //fragColor = vec4(col, 1.0);
+//}

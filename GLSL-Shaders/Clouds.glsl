@@ -11,16 +11,27 @@
 // as part of your educational material. If these
 // conditions are too restrictive please contact me.
 
-// --- Ported for Ghostty Terminal ---
-// Changes made:
-// 1. Replaced Shadertoy texture lookups (iChannel0, iChannel1, iChannel2)
-//    with procedural noise functions so it runs standalone in Ghostty.
-// 2. Replaced texture-based blue noise dithering with coordinate hashing.
-// 3. Added auto-panning if iMouse is inactive.
+// Volumetric clouds. Not physically correct in any way -
+// it does the wrong extintion computations and also
+// works in sRGB instead of linear RGB color space. No
+// shadows are computed, no scattering is computed. It is
+// a volumetric raymarcher than samples an fBM and tweaks
+// the colors to make it look good.
+//
+// Lighting is done with only one extra sample per raymarch
+// step instead of using 3 to compute a density gradient,
+// by using this directional derivative technique:
+//
+// https://iquilezles.org/articles/derivative
 
 // 0: sunset look
 // 1: bright look
 #define LOOK 1
+
+// 0: one 3d texture lookup
+// 1: two 2d texture lookups with hardware interpolation
+// 2: two 2d texture lookups with software interpolation
+#define NOISE_METHOD 1
 
 // 0: no LOD
 // 1: yes LOD
@@ -39,41 +50,41 @@ mat3 setCamera(in vec3 ro, in vec3 ta, float cr)
     return mat3(cu, cv, cw);
 }
 
-// --- Procedural Noise Additions ---
-float hash(vec3 p) {
-    p = fract(p * 0.3183099 + 0.1);
-    p *= 17.0;
-    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
-}
-
 float noise(in vec3 x)
 {
     #if TURBULENCE==1
     x *= 0.5;
     #endif
 
-    vec3 i = floor(x);
+    vec3 p = floor(x);
     vec3 f = fract(x);
     f = f * f * (3.0 - 2.0 * f);
 
-    // Trilinear interpolation
-    float n = mix(
-            mix(mix(hash(i + vec3(0, 0, 0)), hash(i + vec3(1, 0, 0)), f.x),
-                mix(hash(i + vec3(0, 1, 0)), hash(i + vec3(1, 1, 0)), f.x), f.y),
-            mix(mix(hash(i + vec3(0, 0, 1)), hash(i + vec3(1, 0, 1)), f.x),
-                mix(hash(i + vec3(0, 1, 1)), hash(i + vec3(1, 1, 1)), f.x), f.y),
-            f.z
-        );
-
-    float res = n * 2.0 - 1.0;
+    #if NOISE_METHOD==0
+    x = p + f;
+    float n = textureLod(iChannel2, (x + 0.5) / 32.0, 0.0).x * 2.0 - 1.0;
+    #endif
+    #if NOISE_METHOD==1
+    vec2 uv = (p.xy + vec2(37.0, 239.0) * p.z) + f.xy;
+    vec2 rg = textureLod(iChannel0, (uv + 0.5) / 256.0, 0.0).yx;
+    float n = mix(rg.x, rg.y, f.z) * 2.0 - 1.0;
+    #endif
+    #if NOISE_METHOD==2
+    ivec3 q = ivec3(p);
+    ivec2 uv = q.xy + ivec2(37, 239) * q.z;
+    vec2 rg = mix(mix(texelFetch(iChannel0, (uv) & 255, 0),
+                texelFetch(iChannel0, (uv + ivec2(1, 0)) & 255, 0), f.x),
+            mix(texelFetch(iChannel0, (uv + ivec2(0, 1)) & 255, 0),
+                texelFetch(iChannel0, (uv + ivec2(1, 1)) & 255, 0), f.x), f.y).yx;
+    float n = mix(rg.x, rg.y, f.z) * 2.0 - 1.0;
+    #endif
 
     #if TURBULENCE==0
-    return res;
+    return n;
     #else
-    return 2.0 * abs(res) - 1.0;
+    return 2.0 * abs(n) - 1.0;
     #endif
 }
-// ----------------------------------
 
 #if LOOK==0
 float map(in vec3 p, int oct)
@@ -109,60 +120,72 @@ float map(in vec3 p, int oct)
     return 1.5 * f - 0.5 - p.y;
 }
 
-const int kDiv = 1;
+const int kDiv = 1; // make bigger for higher quality
 const vec3 sundir = normalize(vec3(1.0, 0.0, -1.0));
 
 vec4 raymarch(in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px)
 {
+    // bounding planes
     const float yb = -3.0;
     const float yt = 0.6;
     float tb = (yb - ro.y) / rd.y;
-    float tt = (yt - ro.y) / rd.y;
+    float tt = (yt - ro.y) / rd.t;
 
+    // find tigthest possible raymarching segment
     float tmin, tmax;
     if (ro.y > yt)
     {
-        if (tt < 0.0) return vec4(0.0);
+        // above top plane
+        if (tt < 0.0) return vec4(0.0); // early exit
         tmin = tt;
         tmax = tb;
     }
     else
     {
+        // inside clouds slabs
         tmin = 0.0;
         tmax = 60.0;
         if (tt > 0.0) tmax = min(tmax, tt);
         if (tb > 0.0) tmax = min(tmax, tb);
     }
 
-    // Replaced iChannel1 texture with coordinate-based hash dithering
-    float dither = fract(sin(dot(vec2(px), vec2(12.9898, 78.233))) * 43758.5453);
-    float t = tmin + 0.1 * dither;
+    // dithered near distance
+    float t = tmin + 0.1 * texelFetch(iChannel1, px & 1023, 0).x;
 
+    // raymarch loop
     vec4 sum = vec4(0.0);
     for (int i = 0; i < 190 * kDiv; i++)
     {
+        // step size
         float dt = max(0.05, 0.02 * t / float(kDiv));
 
+        // lod
         #if USE_LOD==0
         const int oct = 5;
         #else
         int oct = 5 - int(log2(1.0 + t * 0.5));
         #endif
 
+        // sample cloud
         vec3 pos = ro + t * rd;
         float den = map(pos, oct);
-        if (den > 0.01)
+        if (den > 0.01) // if inside
         {
+            // do lighting
             float dif = clamp((den - map(pos + 0.3 * sundir, oct)) / 0.25, 0.0, 1.0);
             vec3 lin = vec3(0.65, 0.65, 0.75) * 1.1 + 0.8 * vec3(1.0, 0.6, 0.3) * dif;
             vec4 col = vec4(mix(vec3(1.0, 0.93, 0.84), vec3(0.25, 0.3, 0.4), den), den);
             col.xyz *= lin;
+            // fog
             col.xyz = mix(col.xyz, bgcol, 1.0 - exp2(-0.1 * t));
+            // composite front to back
             col.w = min(col.w * 8.0 * dt, 1.0);
             col.rgb *= col.a;
             sum += col * (1.0 - sum.a);
         }
+        // advance ray
         t += dt;
+        // until far clip or full opacity
         if (t > tmax || sum.a > 0.99) break;
     }
 
@@ -173,14 +196,19 @@ vec4 render(in vec3 ro, in vec3 rd, in ivec2 px)
 {
     float sun = clamp(dot(sundir, rd), 0.0, 1.0);
 
+    // background sky
     vec3 col = vec3(0.76, 0.75, 0.95);
     col -= 0.6 * vec3(0.90, 0.75, 0.95) * rd.y;
     col += 0.2 * vec3(1.00, 0.60, 0.10) * pow(sun, 8.0);
 
+    // clouds
     vec4 res = raymarch(ro, rd, col, px);
     col = col * (1.0 - res.w) + res.xyz;
 
+    // sun glare
     col += 0.2 * vec3(1.0, 0.4, 0.2) * pow(sun, 3.0);
+
+    // tonemap
     col = smoothstep(0.15, 1.1, col);
 
     return vec4(col, 1.0);
@@ -258,9 +286,7 @@ const vec3 sundir = vec3(-0.7071, 0.0, -0.7071);
 vec4 raymarch(in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px)
 {
     vec4 sum = vec4(0.0);
-    // Replaced iChannel1 texture with coordinate-based hash dithering
-    float dither = fract(sin(dot(vec2(px), vec2(12.9898, 78.233))) * 43758.5453);
-    float t = 0.05 * dither;
+    float t = 0.05 * texelFetch(iChannel1, px & 255, 0).x;
     MARCH(40, map5);
     MARCH(40, map4);
     MARCH(30, map3);
@@ -270,11 +296,14 @@ vec4 raymarch(in vec3 ro, in vec3 rd, in vec3 bgcol, in ivec2 px)
 
 vec4 render(in vec3 ro, in vec3 rd, in ivec2 px)
 {
+    // background sky
     float sun = clamp(dot(sundir, rd), 0.0, 1.0);
     vec3 col = vec3(0.6, 0.71, 0.75) - rd.y * 0.2 * vec3(1.0, 0.5, 1.0) + 0.15 * 0.5;
     col += 0.2 * vec3(1.0, .6, 0.1) * pow(sun, 8.0);
+    // clouds
     vec4 res = raymarch(ro, rd, col, px);
     col = col * (1.0 - res.w) + res.xyz;
+    // sun glare
     col += vec3(0.2, 0.08, 0.04) * pow(sun, 3.0);
     return vec4(col, 1.0);
 }
@@ -285,11 +314,6 @@ void mainImage(out vec4 fragColor, in vec2 fragCoord)
 {
     vec2 p = (2.0 * fragCoord - iResolution.xy) / iResolution.y;
     vec2 m = iMouse.xy / iResolution.xy;
-
-    // Fallback animation if iMouse isn't passed or used
-    if (length(m) < 0.001) {
-        m = vec2(iTime * 0.02, 0.5);
-    }
 
     // camera
     vec3 ro = 4.0 * normalize(vec3(sin(3.0 * m.x), 0.8 * m.y, cos(3.0 * m.x))) - vec3(0.0, 0.1, 0.0);

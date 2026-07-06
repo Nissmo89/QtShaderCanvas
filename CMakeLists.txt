@@ -40,6 +40,10 @@ set_target_properties(QtShaderCanvas PROPERTIES
     SOVERSION 0
 )
 
+# QCodeEngine configuration
+set(QCodeEngine_C_BUILD_TESTS OFF CACHE INTERNAL "")
+add_subdirectory(QCodeEngine-C/QCodeEngine_C)
+
 # Example subproject configuration
 option(BUILD_EXAMPLES "Build example applications" ON)
 if(BUILD_EXAMPLES)
