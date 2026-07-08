@@ -1,3 +1,10 @@
 build/
 visual_checks/
 QtShaderCanvas_Architecture_Updated.md
+
+# Non-free/restricted shaders (Proprietary / Inigo Quilez Restrictive License)
+GLSL-Shaders/Clouds.glsl
+GLSL-Shaders/Jumping.glsl
+GLSL-Shaders/Rainforest.glsl
+GLSL-Shaders/Tower.glsl
+GLSL-Shaders/Plasma/Balatro.glsl
