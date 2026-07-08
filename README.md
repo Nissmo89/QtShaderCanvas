@@ -137,3 +137,10 @@ LD_LIBRARY_PATH=build ./build/examples/QtShaderCanvasExample
 - `GLSL-Shaders/`: Additional preloaded shaders showcasing different complex visual math patterns (Clouds, Rainforest, Dubstep, Octagrams, etc.).
 - `QCodeEngine-C/`: Vendored dependency for the code editor inside the Shader Playground.
 - `examples/`: Code for the Shader Playground application (`QtShaderCanvasExample`).
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
