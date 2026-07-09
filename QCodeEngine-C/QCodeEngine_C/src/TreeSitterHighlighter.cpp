@@ -316,7 +316,7 @@ void TreeSitterHighlighter::reparse() {
 }
 
 // Clear the given block range.
-inline void TreeSitterHighlighter::clear_range(BlockRange range) {
+void TreeSitterHighlighter::clear_range(BlockRange range) {
     if (!this->document) {
         return;
     }
@@ -330,7 +330,7 @@ inline void TreeSitterHighlighter::clear_range(BlockRange range) {
 }
 
 // Clear the whole document.
-inline void TreeSitterHighlighter::clear() {
+void TreeSitterHighlighter::clear() {
     if (!this->document) {
         return;
     }

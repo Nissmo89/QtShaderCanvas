@@ -15,8 +15,8 @@ find_package(Qt6 COMPONENTS Widgets OpenGL OpenGLWidgets REQUIRED)
 # Specify public include directory
 include_directories(include)
 
-# Define the shared library target
-add_library(QtShaderCanvas SHARED
+# Define the library target
+add_library(QtShaderCanvas
     include/QtShaderCanvas.h
     src/QtShaderCanvas.cpp
 )

@@ -1,0 +1,185 @@
+name: CI Build
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-linux:
+    name: Build on Linux
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential \
+            cmake \
+            ninja-build \
+            libgl1-mesa-dev \
+            libglu1-mesa-dev \
+            libegl1-mesa-dev \
+            libxkbcommon-dev \
+            libxkbcommon-x11-dev \
+            libfontconfig1-dev \
+            libfreetype6-dev \
+            libdbus-1-dev \
+            libxcb1-dev \
+            libxcb-glx0-dev \
+            libxcb-keysyms1-dev \
+            libxcb-image0-dev \
+            libxcb-shm0-dev \
+            libxcb-icccm4-dev \
+            libxcb-sync-dev \
+            libxcb-xfixes0-dev \
+            libxcb-shape0-dev \
+            libxcb-randr0-dev \
+            libxcb-render-util0-dev \
+            libxcb-xinerama0-dev \
+            libxcb-xkb-dev \
+            libxkbcommon-x11-0 \
+            imagemagick
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.6.3'
+          arch: 'gcc_64'
+          cache: true
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: |
+          cmake --build build --config Release -j $(nproc)
+
+      - name: Create Desktop Entry and Icon
+        run: |
+          cat <<EOF > QtShaderCanvasExample.desktop
+          [Desktop Entry]
+          Type=Application
+          Name=QtShaderCanvas Playground
+          Exec=QtShaderCanvasExample
+          Icon=QtShaderCanvasExample
+          Categories=Development;
+          EOF
+          
+          # Use ImageMagick to resize the Lush Green image to create a nice icon
+          convert "06. Green Lush.jpg" -resize 256x256 QtShaderCanvasExample.png
+
+      - name: Package AppImage
+        run: |
+          # Download linuxdeploy and qt plugin
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy-plugin-qt/releases/download/continuous/linuxdeploy-plugin-qt-x86_64.AppImage
+          chmod +x linuxdeploy-x86_64.AppImage linuxdeploy-plugin-qt-x86_64.AppImage
+          
+          # Setup environment
+          export PATH="${{ env.QT_ROOT_DIR }}/bin:$PATH"
+          export QMAKE="${{ env.QT_ROOT_DIR }}/bin/qmake"
+          
+          # Run linuxdeploy to package the app
+          ./linuxdeploy-x86_64.AppImage --appimage-extract-and-run \
+            --executable build/examples/QtShaderCanvasExample \
+            --desktop-file QtShaderCanvasExample.desktop \
+            --icon-file QtShaderCanvasExample.png \
+            --plugin qt \
+            --output appimage
+
+      - name: Rename and Prepare Assets
+        run: |
+          # Find generated AppImage and rename it to a clean name
+          mv QtShaderCanvas_Playground-x86_64.AppImage QtShaderCanvasPlayground-x86_64.AppImage || true
+          mv Qt_Shader_Canvas-x86_64.AppImage QtShaderCanvasPlayground-x86_64.AppImage || true
+          mv QtShaderCanvas*-x86_64.AppImage QtShaderCanvasPlayground-x86_64.AppImage || true
+          
+          # Create standalone portable directory with shaders and images
+          mkdir -p QtShaderCanvasPlayground-Linux
+          cp QtShaderCanvasPlayground-x86_64.AppImage QtShaderCanvasPlayground-Linux/
+          cp "06. Green Lush.jpg" QtShaderCanvasPlayground-Linux/
+          cp -r GLSL-Shaders QtShaderCanvasPlayground-Linux/
+          
+          # Compress to tar.gz
+          tar -czf QtShaderCanvasPlayground-Linux.tar.gz QtShaderCanvasPlayground-Linux/
+
+      - name: Upload Standalone AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: QtShaderCanvasPlayground-Linux-AppImage
+          path: QtShaderCanvasPlayground-x86_64.AppImage
+
+      - name: Upload Portable Tarball
+        uses: actions/upload-artifact@v4
+        with:
+          name: QtShaderCanvasPlayground-Linux-Portable
+          path: QtShaderCanvasPlayground-Linux.tar.gz
+
+  build-windows:
+    name: Build on Windows
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v4
+        with:
+          version: '6.6.3'
+          arch: 'win64_msvc2019_64'
+          cache: true
+
+      - name: Set up MSVC Developer Command Prompt
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Configure CMake
+        run: |
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+
+      - name: Build
+        run: |
+          cmake --build build --config Release -j 4
+
+      - name: Deploy and Package
+        shell: pwsh
+        run: |
+          # Create deployment directory
+          New-Item -ItemType Directory -Force -Path deploy
+          
+          # Copy executables (handling both multi-config and single-config generator output)
+          if (Test-Path build\examples\Release\QtShaderCanvasExample.exe) {
+              Copy-Item build\examples\Release\QtShaderCanvasExample.exe deploy\
+              Copy-Item build\examples\Release\QtShaderCanvasShaderChecker.exe deploy\
+          } else {
+              Copy-Item build\examples\QtShaderCanvasExample.exe deploy\
+              Copy-Item build\examples\QtShaderCanvasShaderChecker.exe deploy\
+          }
+          
+          # Copy assets
+          Copy-Item "06. Green Lush.jpg" deploy\
+          Copy-Item -Recurse GLSL-Shaders deploy\
+          
+          # Run windeployqt
+          $env:Path = "${{ env.QT_ROOT_DIR }}\bin;" + $env:Path
+          windeployqt --release --compiler-runtime --dir deploy deploy\QtShaderCanvasExample.exe
+          windeployqt --release --compiler-runtime --dir deploy deploy\QtShaderCanvasShaderChecker.exe
+          
+          # Zip the deployment directory
+          Compress-Archive -Path deploy\* -DestinationPath QtShaderCanvasPlayground-Windows.zip
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: QtShaderCanvasPlayground-Windows
+          path: QtShaderCanvasPlayground-Windows.zip
