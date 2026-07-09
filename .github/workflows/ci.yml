@@ -45,7 +45,9 @@ jobs:
             libxcb-xinerama0-dev \
             libxcb-xkb-dev \
             libxkbcommon-x11-0 \
-            imagemagick
+            imagemagick \
+            libfuse2 \
+            patchelf
 
       - name: Install Qt
         uses: jurplel/install-qt-action@v4
@@ -79,6 +81,8 @@ jobs:
           convert "06. Green Lush.jpg" -resize 256x256 QtShaderCanvasExample.png
 
       - name: Package AppImage
+        env:
+          APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
           # Download linuxdeploy and qt plugin
           wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage
@@ -145,7 +149,7 @@ jobs:
 
       - name: Configure CMake
         run: |
-          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF
 
       - name: Build
         run: |
